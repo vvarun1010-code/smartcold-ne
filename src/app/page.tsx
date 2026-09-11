@@ -39,38 +39,40 @@ import {
 } from "lucide-react";
 
 // ─── Dynamic Recharts (SSR disabled) ───────────────────────────────────────
+// Outer React.ComponentType<any> cast preserves children/props support while
+// bypassing the recharts 2.15.x / Next.js dynamic() type incompatibility.
 const LineChart = dynamic(
   () => import("recharts").then((m) => m.LineChart),
   { ssr: false }
-);
+) as React.ComponentType<any>;
 const Line = dynamic(
   () => import("recharts").then((m) => m.Line),
   { ssr: false }
-);
+) as React.ComponentType<any>;
 const XAxis = dynamic(
   () => import("recharts").then((m) => m.XAxis),
   { ssr: false }
-);
+) as React.ComponentType<any>;
 const YAxis = dynamic(
   () => import("recharts").then((m) => m.YAxis),
   { ssr: false }
-);
+) as React.ComponentType<any>;
 const CartesianGrid = dynamic(
   () => import("recharts").then((m) => m.CartesianGrid),
   { ssr: false }
-);
+) as React.ComponentType<any>;
 const Tooltip = dynamic(
   () => import("recharts").then((m) => m.Tooltip),
   { ssr: false }
-);
+) as React.ComponentType<any>;
 const Legend = dynamic(
   () => import("recharts").then((m) => m.Legend),
   { ssr: false }
-);
+) as React.ComponentType<any>;
 const ResponsiveContainer = dynamic(
   () => import("recharts").then((m) => m.ResponsiveContainer),
   { ssr: false }
-);
+) as React.ComponentType<any>;
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 const VEGETABLES: VegetableProfile[] = [
