@@ -10,6 +10,7 @@ import type {
   SystemState,
   ChartDataPoint,
   WeatherData,
+  GeocodingResult,
   VegetableProfile,
   PinoutRow,
 } from "@/lib/types";
@@ -36,6 +37,9 @@ import {
   ChevronRight,
   Menu,
   X,
+  MapPin,
+  Search,
+  Loader2,
 } from "lucide-react";
 
 // ─── Dynamic Recharts (SSR disabled) ───────────────────────────────────────
@@ -156,6 +160,11 @@ export default function HomePage() {
   });
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationCoords, setLocationCoords] = useState({ lat: 25.5788, lon: 91.8933, name: "Shillong" });
+  const [geoResults, setGeoResults] = useState<GeocodingResult[]>([]);
+  const [geoLoading, setGeoLoading] = useState(false);
+  const [showGeoDropdown, setShowGeoDropdown] = useState(false);
   const [selectedVeg, setSelectedVeg] = useState<string>("Tomato");
   const [mounted, setMounted] = useState(false);
 
@@ -251,23 +260,70 @@ export default function HomePage() {
     });
   }, [readings, mounted]);
 
-  // ─── Weather API (Open-Meteo, 15-minute poll) ───────────────────────
+  // ─── Geocoding Search (Open-Meteo, India only) ─────────────────────
+  const searchLocation = useCallback(async (query: string) => {
+    if (query.trim().length < 2) {
+      setGeoResults([]);
+      setShowGeoDropdown(false);
+      return;
+    }
+    setGeoLoading(true);
+    try {
+      const res = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query.trim())}&count=6&language=en&country=IN`
+      );
+      const data = await res.json();
+      if (data?.results?.length) {
+        setGeoResults(
+          data.results.map((r: any) => ({
+            name: r.name,
+            admin1: r.admin1,
+            latitude: r.latitude,
+            longitude: r.longitude,
+            country: r.country,
+          }))
+        );
+        setShowGeoDropdown(true);
+      } else {
+        setGeoResults([]);
+        setShowGeoDropdown(true); // show "no results"
+      }
+    } catch (e) {
+      console.warn("Geocoding search failed:", e);
+      setGeoResults([]);
+    }
+    setGeoLoading(false);
+  }, []);
+
+  const selectLocation = useCallback((result: GeocodingResult) => {
+    const label = result.admin1
+      ? `${result.name}, ${result.admin1}`
+      : result.name;
+    setLocationCoords({ lat: result.latitude, lon: result.longitude, name: label });
+    setLocationQuery("");
+    setGeoResults([]);
+    setShowGeoDropdown(false);
+    setWeather(null); // clear stale data, new fetch will fire via useEffect
+  }, []);
+
+  // ─── Weather API (Open-Meteo, 15-minute poll, dynamic location) ────
   const fetchWeather = useCallback(async () => {
     try {
       const res = await fetch(
-        "https://api.open-meteo.com/v1/forecast?latitude=25.5788&longitude=91.8933&current=temperature_2m"
+        `https://api.open-meteo.com/v1/forecast?latitude=${locationCoords.lat}&longitude=${locationCoords.lon}&current=temperature_2m`
       );
       const data = await res.json();
       if (data?.current?.temperature_2m !== undefined) {
         setWeather({
           temperature: data.current.temperature_2m,
           time: data.current.time,
+          locationName: locationCoords.name,
         });
       }
     } catch (e) {
       console.warn("Weather fetch failed:", e);
     }
-  }, []);
+  }, [locationCoords]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -458,6 +514,15 @@ export default function HomePage() {
               weather={weather}
               chartData={chartData}
               controls={controls}
+              locationCoords={locationCoords}
+              locationQuery={locationQuery}
+              setLocationQuery={setLocationQuery}
+              searchLocation={searchLocation}
+              geoResults={geoResults}
+              geoLoading={geoLoading}
+              showGeoDropdown={showGeoDropdown}
+              setShowGeoDropdown={setShowGeoDropdown}
+              selectLocation={selectLocation}
             />
           )}
           {activeTab === "storage" && (
@@ -494,13 +559,42 @@ function DashboardView({
   weather,
   chartData,
   controls,
+  locationCoords,
+  locationQuery,
+  setLocationQuery,
+  searchLocation,
+  geoResults,
+  geoLoading,
+  showGeoDropdown,
+  setShowGeoDropdown,
+  selectLocation,
 }: {
   readings: SensorReadings;
   pcmReserve: number;
   weather: WeatherData | null;
   chartData: ChartDataPoint[];
   controls: ControlState;
+  locationCoords: { lat: number; lon: number; name: string };
+  locationQuery: string;
+  setLocationQuery: (q: string) => void;
+  searchLocation: (q: string) => void;
+  geoResults: GeocodingResult[];
+  geoLoading: boolean;
+  showGeoDropdown: boolean;
+  setShowGeoDropdown: (v: boolean) => void;
+  selectLocation: (r: GeocodingResult) => void;
 }) {
+  // Debounce timer for geocoding search
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleQueryChange = (value: string) => {
+    setLocationQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      searchLocation(value);
+    }, 400);
+  };
+
   const stats = [
     {
       label: "Chamber Temp",
@@ -527,12 +621,12 @@ function DashboardView({
       sub: `Gel: ${readings.pcm_temp}°C`,
     },
     {
-      label: "Ambient (Shillong)",
+      label: `Ambient (${locationCoords.name})`,
       value: weather ? `${weather.temperature}°C` : `${readings.ambient_temp}°C`,
       icon: <CloudSun size={22} />,
       color: "text-orange-400",
       bgColor: "bg-orange-400/10",
-      sub: weather ? "Open-Meteo live" : "Sensor fallback",
+      sub: weather ? `Open-Meteo · ${locationCoords.name}` : "Sensor fallback",
     },
   ];
 
@@ -557,6 +651,65 @@ function DashboardView({
             <p className="text-xs text-gray-500 mt-1">{s.sub}</p>
           </div>
         ))}
+      </div>
+
+      {/* Location Search */}
+      <div className="bg-surface rounded-xl border border-highlight/20 p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex items-center gap-2 shrink-0">
+            <MapPin size={16} className="text-accent" />
+            <span className="text-sm font-medium text-white">Weather Location</span>
+          </div>
+          <div className="relative flex-1 max-w-md">
+            <div className="relative">
+              <input
+                type="text"
+                value={locationQuery}
+                onChange={(e) => handleQueryChange(e.target.value)}
+                onFocus={() => { if (geoResults.length > 0) setShowGeoDropdown(true); }}
+                placeholder={`Currently: ${locationCoords.name} — type to search…`}
+                className="w-full bg-background border border-highlight/30 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-colors"
+              />
+              <div className="absolute left-3 top-1/2 -translate-y-1/2">
+                {geoLoading ? (
+                  <Loader2 size={15} className="text-accent animate-spin" />
+                ) : (
+                  <Search size={15} className="text-gray-500" />
+                )}
+              </div>
+            </div>
+
+            {/* Dropdown */}
+            {showGeoDropdown && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-surface border border-highlight/30 rounded-lg shadow-2xl overflow-hidden">
+                {geoResults.length > 0 ? (
+                  geoResults.map((r, i) => (
+                    <button
+                      key={`${r.latitude}-${r.longitude}-${i}`}
+                      onClick={() => selectLocation(r)}
+                      className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-highlight/15 transition-colors border-b border-highlight/10 last:border-b-0"
+                    >
+                      <MapPin size={14} className="text-accent shrink-0" />
+                      <div>
+                        <p className="text-sm text-white font-medium">{r.name}</p>
+                        <p className="text-xs text-gray-500">
+                          {r.admin1 ? `${r.admin1}, ` : ""}India · {r.latitude.toFixed(2)}°N, {r.longitude.toFixed(2)}°E
+                        </p>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-4 py-3 text-sm text-gray-500">
+                    No Indian cities found for &ldquo;{locationQuery}&rdquo;
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <span className="text-xs text-gray-500 hidden sm:block">
+            {locationCoords.lat.toFixed(4)}°N, {locationCoords.lon.toFixed(4)}°E
+          </span>
+        </div>
       </div>
 
       {/* Live Chart */}

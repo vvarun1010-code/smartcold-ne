@@ -33,6 +33,15 @@ export interface ChartDataPoint {
 export interface WeatherData {
   temperature: number;
   time: string;
+  locationName: string;
+}
+
+export interface GeocodingResult {
+  name: string;
+  admin1?: string;
+  latitude: number;
+  longitude: number;
+  country: string;
 }
 
 export interface VegetableProfile {
