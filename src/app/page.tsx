@@ -238,27 +238,35 @@ export default function HomePage() {
     }
   }, [mounted]);
 
-  // ─── Chart Data Accumulator (sliding window) ─────────────────────────
+  // ─── Chart Data Accumulator (sliding window, interval-driven) ──────
   useEffect(() => {
     if (!mounted) return;
-    const now = new Date();
-    const timeLabel = `${now.getHours().toString().padStart(2, "0")}:${now
-      .getMinutes()
-      .toString()
-      .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
 
-    setChartData((prev) => {
-      const next = [
-        ...prev,
-        {
-          time: timeLabel,
-          chamberTemp: readings.chamber_temp,
-          pcmTemp: readings.pcm_temp,
-        },
-      ];
-      return next.slice(-CHART_MAX_POINTS);
-    });
-  }, [readings, mounted]);
+    const pushDataPoint = () => {
+      const now = new Date();
+      const timeLabel = `${now.getHours().toString().padStart(2, "0")}:${now
+        .getMinutes()
+        .toString()
+        .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
+
+      setChartData((prev) => {
+        const next = [
+          ...prev,
+          {
+            time: timeLabel,
+            chamberTemp: readingsRef.current.chamber_temp,
+            pcmTemp: readingsRef.current.pcm_temp,
+          },
+        ];
+        return next.slice(-CHART_MAX_POINTS);
+      });
+    };
+
+    // Push first point immediately, then every 3 seconds
+    pushDataPoint();
+    const interval = setInterval(pushDataPoint, 3000);
+    return () => clearInterval(interval);
+  }, [mounted]);
 
   // ─── Geocoding Search (Open-Meteo, India only) ─────────────────────
   const searchLocation = useCallback(async (query: string) => {
